@@ -427,7 +427,7 @@ class train_configy:
     gradient_accumulation_steps: int=4
     gradient_clipping: bool = True
     gradient_clipping_threshold: float = 1.0
-    num_epochs: int=1
+    num_epochs: int=1 # set hoe many epoch to train
     max_train_step: int=0
     max_eval_step: int=0
     num_workers_dataloader: int=1
@@ -488,13 +488,20 @@ if __name__ == "__main__":
             **val_dl_kwargs,
         )
     
-
+    # set optimizer to SGD
     optimizer = optim.SGD(
             model.parameters(),
             lr=train_config.lr,
             weight_decay=train_config.weight_decay,
         )
     scheduler = StepLR(optimizer, step_size=1, gamma=train_config.gamma)
+
+    # Initialize W&B run
+    wandb_run = wandb.init(
+        project="Fine-Tuning-LLama2-7B",   
+        name="experiment_epoch_5",    
+        config=train_config               
+    )
 
     # Start the training process
     results = train(
@@ -506,7 +513,7 @@ if __name__ == "__main__":
         scheduler,
         train_config.gradient_accumulation_steps,
         train_config,
-        None,
+        wandb_run=wandb_run,
     )
     [print(f'Key: {k}, Value: {v}') for k, v in results.items()]
 
