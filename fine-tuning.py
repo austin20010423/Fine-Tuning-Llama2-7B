@@ -1,3 +1,36 @@
+"""
+1. Libraries:
+
+dataclasses: This library is used to create data classes, which are a way to define structured data with type hints.
+wandb: This library is likely used for logging training metrics and visualizing them on the Weights & Biases platform.
+typing: This library provides type annotations for functions and variables, improving code readability and maintainability.
+
+2. Data-related Imports:
+
+Dataset: This class from torch.utils.data is used to define custom datasets for training machine learning models.
+tqdm: This library provides a progress bar for iterating through data, making training progress more visible.
+default_data_collator: This function from the Transformers library is used to collate (combine and arrange) multiple data samples into a batch suitable for model training.
+DataCollatorForSeq2Seq: This class (potentially from a custom library llama_recipes) is likely used for specific data collation related to sequence-to-sequence tasks.
+
+3. Optimization and Scheduling:
+
+optim: This module from torch provides various optimizers (like Adam, SGD) for updating model weights during training.
+StepLR: This class from torch.optim.lr_scheduler implements a learning rate scheduler that reduces the learning rate at specific intervals (steps).
+
+4. Context Management:
+
+nullcontext: This function from contextlib acts as a context manager that does nothing. It's useful when you need a context manager but don't have any specific actions to perform within it.
+
+5. Other Utilities:
+
+datetime: This module provides functions for working with dates and times, potentially used for logging timestamps.
+os: This module provides functions for interacting with the operating system, such as accessing files.
+json: This module is used for working with JSON data format.
+time: This module provides functions for handling time measurements.
+MemoryTrace: This function (potentially from llama_recipes) is likely a custom utility for tracking memory usage during training.
+
+This is a setup for training a large language model or a similar task that involves data loading, optimization, scheduling, and potentially memory monitoring.a setup for training a large language model or a similar task that involves data loading, optimization, scheduling, and potentially memory monitoring.
+"""
 import datasets
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -24,7 +57,22 @@ from evaluate import evaluation
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
 print("Process Using: ", device)
 
-# model name
+"""
+AutoModelForLM is a class from the Hugging Face Transformers library that provides a convenient way to load pre-trained language models (LLMs) designed for causal
+language modeling tasks. These models are typically trained on large amounts of text data and are capable of generating human-quality text, translating languages,
+ writing different kinds of creative content, and answering your questions in an informative way.
+ Automatic Model Selection: The class automatically selects the appropriate model architecture based on the specified model name.
+ Pre-trained Weights: It loads pre-trained weights from the Hugging Face Model Hub, saving you the time and computational resources of training a model from scratch.
+ Causal Language Modeling: These models are specifically designed for tasks that involve predicting the next token in a sequence, making them suitable for text generation, translation, and other sequential tasks.
+ Flexibility: The class offers various configuration options to customize the model's behavior, such as setting the device (CPU or GPU), controlling caching, and specifying the attention implementation.
+
+ Common Use Cases: Text Generation, Machine Translation, Summarization, Question Answering
+
+model_name:   This specifies the name of the pre-trained model you want to load. For example, "gpt2-large" or "bert-base-uncased".
+device_map="cuda":   This tells the model to use your GPU for computations if it's available. If you don't have a GPU, you can set it to "cpu".
+use_cache=None:   This parameter is used to control whether the model should use cached activations to speed up inference. Setting it to None usually defaults to using caching.
+attn_implementation=None:   This parameter specifies the attention implementation to use. If not set, the default implementation will be used. "flash","original", "einsum". Use "flash" for larger models in GPU
+"""
 model_name = "meta-llama/Llama-2-7b-hf"
 
 model = AutoModelForCausalLM.from_pretrained(
@@ -34,6 +82,19 @@ model = AutoModelForCausalLM.from_pretrained(
     attn_implementation=None,
 )
 
+"""
+Loads a Tokenizer:
+
+AutoTokenizer.from_pretrained(model_name) loads a tokenizer associated with the specified pre-trained language model (model_name).
+This tokenizer is responsible for converting text into numerical representations (tokens) that the model can understand.
+Sets Pad Token ID:
+
+tokenizer.pad_token_id = tokenizer.eos_token_id sets the padding token ID of the tokenizer to be the same as the end-of-sequence (EOS) token ID.
+
+Padding: When processing sequences of different lengths, it's often necessary to pad them to a uniform length. This is done by adding a special token (padding token) to the end of shorter sequences.
+EOS Token: The EOS token is used to indicate the end of a sequence.
+Setting Pad Token ID: By setting the padding token ID to the EOS token ID, the model can treat both padding tokens and EOS tokens similarly, which can simplify the training and inference process.
+"""
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 
 def save_to_json(output_filename, train_step_loss, train_epoch_loss, train_step_ppl, train_epoch_ppl, val_step_loss, val_epoch_loss, val_step_ppl, val_epoch_ppl):
@@ -50,7 +111,40 @@ def save_to_json(output_filename, train_step_loss, train_epoch_loss, train_step_
     with open(output_filename, "w") as f:
         json.dump(metrics_data, f)
 
+"""
+This defines a custom batch sampler class named LengthBasedBatchSampler that inherits from torch.utils.data.BatchSampler.
+It creates batches for training a model based on the lengths of the data samples. Here's a breakdown of its functionality:
 
+Initialization ( __init__ method):
+
+data_source: This argument represents the data source, which can be a list of samples or a dictionary-like object containing samples.
+batch_size: This specifies the desired number of samples per batch.
+drop_last: This boolean flag determines whether to drop the last incomplete batch if the number of samples doesn't perfectly fit the batch size.
+shuffle: This boolean flag controls whether to shuffle the order of the data samples before creating batches (default: True).
+
+1. Determining Sample Lengths:
+
+The first checks if the data source elements are dictionaries (e.g., each sample might have multiple keys).
+
+If yes, it extracts the length of the first key's value (assuming all samples have the same keys) to represent the sample length.
+If not (data source is a simple list), it directly uses the length of each element.
+This approach ensures that batches are created with samples of similar lengths, which can improve training efficiency for certain models, particularly recurrent neural networks (RNNs) that process sequences.
+
+2. Creating Batches ( __iter__ method):
+
+Sort by Length: It sorts the indices of the data source based on the previously determined lengths using np.argsort with the mergesort kind for stability.
+Handle Last Batch: If drop_last is True, it removes any leftover samples at the end that wouldn't form a complete batch of size batch_size.
+Create Batches: It iterates through the sorted indices and creates batches by slicing the index list into chunks of size batch_size.
+Shuffle Batches (Optional): If shuffle is True, it shuffles the order of the created batches to introduce randomness and potentially improve training performance.
+
+3. Length of Sampler ( __len__ method):
+
+It calculates the total number of batches based on the data source length, batch size, and the drop_last parameter.
+
+
+This LengthBasedBatchSampler helps create batches with similar sample lengths, which can be beneficial for models that process sequences.
+It also allows control over dropping incomplete batches and shuffling the batches during training.
+"""
 class LengthBasedBatchSampler(torch.utils.data.BatchSampler):
     def __init__(self, data_source, batch_size: int, drop_last: bool, shuffle: bool=True) -> None:
         if isinstance(next(iter(data_source)), dict):
@@ -81,7 +175,35 @@ class LengthBasedBatchSampler(torch.utils.data.BatchSampler):
         else:
             return len(self.lengths) // self.batch_size + (len(self.lengths) % self.batch_size > 0)
 
+"""
+This defines a function named get_dataloader_kwargs that returns a dictionary of keyword arguments for creating a PyTorch DataLoader.
+The function is used to configure the data loading process based on different training configurations and batching strategies.
 
+
+Setting Batch Size:
+
+The batch_size is determined based on the mode parameter:
+If mode is "train", the train_config.batch_size_training is used.
+If mode is "val", the train_config.val_batch_size is used.
+Batching Strategy:
+
+Padding:
+
+If train_config.batching_strategy is "padding", the function creates a LengthBasedBatchSampler to sort samples by length and create batches with similar lengths.
+The DataCollatorForSeq2Seq is used as the collate function to handle padding sequences to the same length.
+
+Packing:
+
+If train_config.batching_strategy is "packing", the batch_size and drop_last parameters are directly set for the DataLoader.
+The default_data_collator is used as the collate function, which typically pads sequences to the maximum length in the batch.
+
+Returning Keyword Arguments:
+
+The function returns the kwargs dictionary, which contains the necessary keyword arguments for creating a PyTorch DataLoader.
+
+This function provides a flexible way to configure data loading for different training scenarios.
+It allows you to choose between padding and packing strategies and customize the batch size and other parameters based on your specific needs.
+"""
 def get_dataloader_kwargs(train_config, dataset, tokenizer, mode):
         kwargs = {}
         batch_size = train_config.batch_size_training if mode=="train" else train_config.val_batch_size
@@ -98,6 +220,36 @@ def get_dataloader_kwargs(train_config, dataset, tokenizer, mode):
         return kwargs
 
 
+"""
+This defines a context manager profile that enables profiling or flop counting during the training process.
+
+Context Manager Setup:
+
+use_profiler and use_flop_counter: These flags determine whether to use the PyTorch profiler or a custom flop counter, respectively.
+Error Handling: If both flags are set, an error is raised as they are mutually exclusive.
+
+PyTorch Profiler:
+
+Warm-up and Active Phases: The profiler requires a warm-up phase to gather accurate performance data. The wait_step, warmup_step, and active_step parameters control the duration of these phases.
+Configuration: Various configuration options are set for the profiler, including:
+activities: Specifies the types of activities to profile (CPU and CUDA).
+schedule: Defines the timing of the profiling phases.
+on_trace_ready: Specifies how to handle the collected traces (e.g., saving to TensorBoard).
+profile_memory: Enables memory profiling.
+with_stack: Controls whether to include stack traces in the profiling data.
+with_flops: Enables flop counting.
+record_shapes: Enables recording tensor shapes.
+Yielding the Profiler: The yield torch_profiler statement allows the code within the with block to access the profiler object.
+
+Flop Counter:
+
+Minimum Steps: The flop counter requires a minimum number of training steps to provide accurate results.
+Yielding the Flop Counter: The yield flop_counter statement allows the code within the with block to access the flop counter object.
+Null Context:
+
+If neither profiling nor flop counting is enabled, a null context is used, which essentially does nothing.
+
+"""
 @contextlib.contextmanager
 def profile(cfg, local_rank=None):
     use_profiler: bool = cfg.use_profiler
@@ -136,7 +288,36 @@ def profile(cfg, local_rank=None):
         yield None
 
 
+"""
+The ConcatDataset class is a custom dataset class that concatenates multiple samples into larger chunks.
+This is often useful for language models where processing longer sequences can improve performance.
 
+
+Initialization:
+
+dataset: This is the original dataset that will be concatenated.
+
+chunk_size: This specifies the desired maximum length of each chunk.
+
+A buffer dictionary is initialized to store the current sequence of tokens for each key (input_ids, attention_mask, labels).
+
+Concatenation and Chunking:
+
+The code iterates over the original dataset, appending each sample's tokens to the corresponding key in the buffer.
+While the length of any key in the buffer exceeds the chunk_size, a chunk is created by slicing the buffer and appending it to the samples list.
+The buffer is then updated to contain the remaining tokens.
+
+Getting Items:
+
+The __getitem__ method allows accessing individual samples from the concatenated dataset. It simply returns the idx-th chunk from the samples list.
+Length:
+
+The __len__ method returns the total number of chunks in the concatenated dataset.
+
+
+The ConcatDataset class takes an original dataset and concatenates its samples into chunks of a specified maximum length.
+This can be useful for training language models on longer sequences or for optimizing batching strategies.
+"""
 class ConcatDataset(Dataset):
     def __init__(self, dataset, chunk_size=4096):
         self.dataset = dataset
@@ -188,6 +369,62 @@ def get_preprocessed_dataset(tokenizer):
     return train_dataset, val_dataset
 
 # training function
+"""
+This defines a function named train that handles the training process for a machine learning model. Here's a breakdown of what it does:
+
+Setup:
+
+Model and Optimizers: The function takes the model, training data loader, evaluation data loader, tokenizer, optimizer, learning rate scheduler, gradient accumulation steps, and training configuration as arguments.
+Gradients: A GradScaler is used to manage gradients during mixed precision training.
+Logging: Various variables are initialized for tracking and logging metrics like training loss, perplexity, memory usage, and epoch times.
+
+Training Loop:
+
+Epoch Loop: The code iterates over the specified number of epochs (train_config.num_epochs).
+Max Steps Check: It checks if the maximum training steps (train_config.max_train_step) have been reached. If so, it stops training.
+Epoch Start Time: It records the start time of the current epoch for later timing analysis.
+Memory Tracking: A MemoryTrace context is used to track memory usage during training.
+Model in Train Mode: The model is set to train mode.
+Training Progress Bar: A progress bar is displayed using tqdm to track training progress.
+Profiling (Optional): If profiling or flop counting is enabled in the configuration, a profile context manager is used to profile the training process.
+
+Training Step:
+
+Data Batch: The code iterates over each batch in the training data loader.
+Max Steps Check: It again checks if the maximum training steps have been reached. If so, it stops training within the loop.
+Data to Device: The batch is transferred to the appropriate device (GPU or XPU, if available).
+Automatic Mixed Precision (Optional): If mixed precision training is enabled, the code uses an autocast context manager to manage mixed precision calculations.
+Forward Pass: The batch is passed through the model to get the model outputs and loss.
+Loss Scaling (Optional): The loss is scaled by the gradient accumulation steps.
+
+Backpropagation:
+
+Record Loss (Optional): If saving metrics is enabled, the training step loss and perplexity are recorded.
+Backward Pass: The calculated loss is backpropagated through the model to compute gradients.
+Gradient Clipping (Optional): If gradient clipping is enabled in the configuration, the gradients are clipped to a specified threshold.
+Gradient Accumulation: Gradients are accumulated over multiple steps before performing an optimizer update.
+Optimizer Step: After enough gradients are accumulated or the end of the epoch is reached, the optimizer takes a step to update the model weights.
+Zero Gradients: The optimizer's gradients are zeroed out for the next batch.
+Progress Bar Update: The progress bar is updated to reflect training progress.
+
+Evaluation (Optional):
+
+Periodic Evaluation: After every specified number of training steps (usually every epoch), the model is evaluated on the validation data loader using the evaluation function.
+Logging Results (Optional): If saving metrics is enabled, the evaluation loss and perplexity for each step within the epoch are recorded.
+
+Saving Model:
+
+Best Model Saving: After each epoch, the model with the best validation loss is saved as the "best_model".
+
+Logging and Metrics:
+
+Epoch Metrics: The training perplexity, loss, and epoch time are printed and averaged for the entire epoch.
+Metrics Saving (Optional): If saving metrics is enabled, all the recorded training and validation metrics are saved to a JSON file.
+Memory Cleanup: Finally, PyTorch's cache is cleared.
+
+
+The function calculates and returns a dictionary containing average training loss, perplexity, validation loss, perplexity, epoch time, checkpointing time, and (optionally) the metrics filename.
+"""
 def train(model, train_dataloader, eval_dataloader, tokenizer, optimizer, lr_scheduler, gradient_accumulation_steps, train_config, wandb_run=None):
     """
     Trains the model on the given dataloader
@@ -253,9 +490,6 @@ def train(model, train_dataloader, eval_dataloader, tokenizer, optimizer, lr_sch
                         break
                     # print(f"The keys in the batch are:{batch.keys()}")
                     for key in batch.keys():
-                        # if is_xpu_available():
-                        #     batch[key] = batch[key].to('xpu:0')
-                        # else:
                           batch[key] = batch[key].to('cuda:0')
                     with autocast():
                         outputs = model(**batch)
